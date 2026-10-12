@@ -114,6 +114,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==================== BASE DE DATOS (TURSO) ====================
+import libsql
+
+# ==================== BASE DE DATOS (TURSO) ====================
 def init_connection():
     if "TURSO_DATABASE_URL" in st.secrets and "TURSO_AUTH_TOKEN" in st.secrets:
         url = st.secrets["TURSO_DATABASE_URL"]
@@ -122,14 +125,13 @@ def init_connection():
         url = "libsql://partes-trabajo-satampinf.aws-eu-west-1.turso.io"
         auth_token = ""
 
-    # Usamos create_client en lugar de connect
-    client = libsql_client.create_client(
-        url=url,
-        auth_token=auth_token
-    )
-    return client
+    # Conexión sincrónica compatible con Streamlit
+    conn = libsql.connect("partes_remotas.db", sync_url=url, auth_token=auth_token)
+    conn.sync()  # Sincroniza los datos locales con la nube de Turso
+    return conn
 
 conn = init_connection()
+cursor = conn.cursor()
 
 def init_db():
     conn.execute("""
