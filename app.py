@@ -1,8 +1,8 @@
 from datetime import datetime
 import os
-import sqlite3
-import pandas as pd
 import streamlit as st
+import pandas as pd
+import libsql_client
 
 # Importar ReportLab para generar los PDFs de los partes
 try:
@@ -60,7 +60,7 @@ st.markdown("""
     }
     
     .header-container::after {
-        content: "⚡ [SYSTEM_ONLINE // COMPANY_CONFIG_ACTIVE]";
+        content: "⚡ [SYSTEM_ONLINE // TURSO_CLOUD_ACTIVE]";
         position: absolute;
         right: 25px;
         top: 15px;
@@ -113,12 +113,25 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ==================== BASE DE DATOS ====================
+# ==================== BASE DE DATOS (TURSO) ====================
+def init_connection():
+    if "TURSO_DATABASE_URL" in st.secrets and "TURSO_AUTH_TOKEN" in st.secrets:
+        url = st.secrets["TURSO_DATABASE_URL"]
+        auth_token = st.secrets["TURSO_AUTH_TOKEN"]
+    else:
+        url = "libsql://partes-trabajo-satampinf.aws-eu-west-1.turso.io"
+        auth_token = ""
+
+    conn = libsql_client.connect(
+        url=url,
+        auth_token=auth_token
+    )
+    return conn
+
+conn = init_connection()
+
 def init_db():
-    conn = sqlite3.connect("partes_trabajo.db", check_same_thread=False)
-    cursor = conn.cursor()
-    
-    cursor.execute("""
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS empresa_config (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nombre_empresa TEXT,
@@ -130,15 +143,14 @@ def init_db():
         )
     """)
     
-    cursor.execute("SELECT COUNT(*) FROM empresa_config")
-    if cursor.fetchone()[0] == 0:
-        cursor.execute("""
+    res_emp = conn.execute("SELECT COUNT(*) FROM empresa_config")
+    if res_emp.rows[0][0] == 0:
+        conn.execute("""
             INSERT INTO empresa_config (nombre_empresa, cif, direccion, telefono, email, web)
             VALUES (?, ?, ?, ?, ?, ?)
         """, ("AMP INFORMÁTICA", "B-12345678", "Calle Principal 10, Taller Táctico", "+34 600 000 000", "soporte@ampinformatica.es", "www.ampinformatica.es"))
-        conn.commit()
 
-    cursor.execute("""
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS clientes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nombre TEXT NOT NULL,
@@ -149,7 +161,7 @@ def init_db():
         )
     """)
     
-    cursor.execute("""
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nombre TEXT NOT NULL,
@@ -160,7 +172,7 @@ def init_db():
         )
     """)
     
-    cursor.execute("""
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS catalogo_reparaciones (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             titulo TEXT NOT NULL UNIQUE,
@@ -168,7 +180,7 @@ def init_db():
         )
     """)
     
-    cursor.execute("""
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS catalogo_materiales (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nombre TEXT NOT NULL UNIQUE,
@@ -176,7 +188,7 @@ def init_db():
         )
     """)
     
-    cursor.execute("""
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS partes (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             fecha TEXT NOT NULL,
@@ -191,7 +203,7 @@ def init_db():
         )
     """)
     
-    cursor.execute("""
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS base_conocimiento (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             fecha TEXT NOT NULL,
@@ -199,24 +211,13 @@ def init_db():
             descripcion TEXT NOT NULL
         )
     """)
-    
-    cursor.execute("PRAGMA table_info(partes)")
-    cols_partes = [c[1] for c in cursor.fetchall()]
-    if "foto_path" not in cols_partes:
-        cursor.execute("ALTER TABLE partes ADD COLUMN foto_path TEXT")
-    if "firma_path" not in cols_partes:
-        cursor.execute("ALTER TABLE partes ADD COLUMN firma_path TEXT")
 
-    conn.commit()
-    return conn
-
-conn = init_db()
-cursor = conn.cursor()
+init_db()
 
 def obtener_datos_empresa():
-    cursor.execute("SELECT nombre_empresa, cif, direccion, telefono, email, web FROM empresa_config LIMIT 1")
-    row = cursor.fetchone()
-    if row:
+    res = conn.execute("SELECT nombre_empresa, cif, direccion, telefono, email, web FROM empresa_config LIMIT 1")
+    if res.rows:
+        row = res.rows[0]
         return {"nombre": row[0], "cif": row[1], "direccion": row[2], "telefono": row[3], "email": row[4], "web": row[5]}
     return {"nombre": "AMP INFORMÁTICA", "cif": "", "direccion": "", "telefono": "", "email": "", "web": ""}
 
@@ -342,7 +343,7 @@ with col_titulo:
     st.markdown("""
         <h1 style='color: #f8fafc; margin: 0; font-size: 28px;'>AMP INFORMÁTICA</h1>
         <p style='color: #38bdf8; margin: 5px 0 0 0; font-family: "Share Tech Mono", monospace; font-size: 14px;'>
-            🛠️ Gestión Integral de Servicio Técnico, Reparaciones y Hardware
+            🛠️ Gestión Integral de Servicio Técnico, Reparaciones y Hardware (Turso Cloud)
         </p>
     """, unsafe_allow_html=True)
 st.markdown("</div>", unsafe_allow_html=True)
@@ -366,17 +367,17 @@ with menu[0]:
 
     @st.dialog("⚡ [NUEVA ORDEN DE REPARACIÓN Y FIRMA DIGITAL]", width="large")
     def abrir_modal_nuevo_parte():
-        cursor.execute("SELECT nombre FROM clientes ORDER BY nombre")
-        clientes_db = [row[0] for row in cursor.fetchall()]
+        res_cli = conn.execute("SELECT nombre FROM clientes ORDER BY nombre")
+        clientes_db = [row[0] for row in res_cli.rows]
         
-        cursor.execute("SELECT nombre FROM usuarios ORDER BY nombre")
-        usuarios_db = [row[0] for row in cursor.fetchall()]
+        res_usu = conn.execute("SELECT nombre FROM usuarios ORDER BY nombre")
+        usuarios_db = [row[0] for row in res_usu.rows]
         
-        cursor.execute("SELECT titulo, descripcion FROM catalogo_reparaciones ORDER BY titulo")
-        reparaciones_db = cursor.fetchall()
+        res_rep = conn.execute("SELECT titulo, descripcion FROM catalogo_reparaciones ORDER BY titulo")
+        reparaciones_db = res_rep.rows
         
-        cursor.execute("SELECT nombre FROM catalogo_materiales ORDER BY nombre")
-        materiales_db = [row[0] for row in cursor.fetchall()]
+        res_mat = conn.execute("SELECT nombre FROM catalogo_materiales ORDER BY nombre")
+        materiales_db = [row[0] for row in res_mat.rows]
 
         col_f1, col_f2 = st.columns(2)
         with col_f1:
@@ -496,13 +497,12 @@ with menu[0]:
                         print(f"Error al procesar la firma: {e}")
 
                 try:
-                    cursor.execute("""
+                    conn.execute("""
                         INSERT INTO partes (fecha, cliente, operario, reparacion, materiales, tiempo, estado, foto_path, firma_path)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (fecha_actual, cliente, operario, desc_final, lista_mats_combinada, tiempo, estado_parte, ruta_foto_guardada, ruta_firma_guardada))
-                    conn.commit()
                     
-                    st.success("¡Parte registrado y guardado con éxito!")
+                    st.success("¡Parte registrado y guardado con éxito en Turso!")
                     st.balloons()
                     st.rerun()
                 except Exception as e:
@@ -516,13 +516,13 @@ with menu[0]:
     st.markdown("---")
     st.markdown("### 🔍 Gestión y Actualización de Partes Activos (Abiertos / En Proceso)")
     
-    cursor.execute("""
+    res_activos = conn.execute("""
         SELECT id, fecha, cliente, operario, reparacion, estado, tiempo, foto_path, firma_path 
         FROM partes 
         WHERE estado IN ('Abierto', 'En proceso')
         ORDER BY id DESC
     """)
-    partes_activos = cursor.fetchall()
+    partes_activos = res_activos.rows
     
     if not partes_activos:
         st.info("No hay partes abiertos ni en proceso actualmente.")
@@ -546,8 +546,7 @@ with menu[0]:
                 with col_info3:
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.button("💾 Actualizar Estado", key=f"btn_act_{p_id}", use_container_width=True):
-                        cursor.execute("UPDATE partes SET estado = ? WHERE id = ?", (nuevo_estado, p_id))
-                        conn.commit()
+                        conn.execute("UPDATE partes SET estado = ? WHERE id = ?", (nuevo_estado, p_id))
                         st.success(f"¡Parte #{p_id} actualizado a '{nuevo_estado}'!")
                         st.rerun()
 
@@ -571,13 +570,13 @@ with menu[1]:
                     st.error("Los campos 'Nombre' y 'ID de Usuario' son obligatorios.")
                 else:
                     try:
-                        cursor.execute("INSERT INTO usuarios (nombre, usuario, rol, telefono, email) VALUES (?, ?, ?, ?, ?)", (u_nombre, u_usuario, u_rol, u_telefono, u_email))
-                        conn.commit()
+                        conn.execute("INSERT INTO usuarios (nombre, usuario, rol, telefono, email) VALUES (?, ?, ?, ?, ?)", (u_nombre, u_usuario, u_rol, u_telefono, u_email))
                         st.success(f"Técnico '{u_nombre}' registrado con éxito.")
                     except Exception as e:
                         st.error(f"Error al registrar técnico: {e}")
     with sub_tab_usu[1]:
-        df_usuarios = pd.read_sql_query("SELECT id AS ID, nombre AS 'Nombre Técnico', usuario AS 'ID Usuario', rol AS 'Especialidad', telefono AS Teléfono, email AS Email FROM usuarios", conn)
+        res_u_df = conn.execute("SELECT id AS ID, nombre AS 'Nombre Técnico', usuario AS 'ID Usuario', rol AS 'Especialidad', telefono AS Teléfono, email AS Email FROM usuarios")
+        df_usuarios = pd.DataFrame(res_u_df.rows, columns=["ID", "Nombre Técnico", "ID Usuario", "Especialidad", "Teléfono", "Email"]) if res_u_df.rows else pd.DataFrame()
         if not df_usuarios.empty:
             st.dataframe(df_usuarios, use_container_width=True)
 
@@ -601,8 +600,7 @@ with menu[2]:
                     st.error("El nombre del cliente es obligatorio.")
                 else:
                     try:
-                        cursor.execute("INSERT INTO clientes (nombre, cif_nif, telefono, email, direccion) VALUES (?, ?, ?, ?, ?)", (c_nombre, c_cif, c_telefono, c_email, c_direccion))
-                        conn.commit()
+                        conn.execute("INSERT INTO clientes (nombre, cif_nif, telefono, email, direccion) VALUES (?, ?, ?, ?, ?)", (c_nombre, c_cif, c_telefono, c_email, c_direccion))
                         st.success(f"Cliente '{c_nombre}' guardado correctamente.")
                     except Exception as e:
                         st.error(f"Error al guardar: {e}")
@@ -627,14 +625,14 @@ with menu[2]:
                         nombre = str(row[col_nom]) if pd.notna(row[col_nom]) else ""
                         if not nombre or nombre == "nan": continue
                         telefono = str(row[col_telf]) if col_telf != "Ninguna" and pd.notna(row[col_telf]) else None
-                        cursor.execute("INSERT INTO clientes (nombre, telefono) VALUES (?, ?)", (nombre, telefono))
+                        conn.execute("INSERT INTO clientes (nombre, telefono) VALUES (?, ?)", (nombre, telefono))
                         importados += 1
-                    conn.commit()
                     st.success(f"¡Importación finalizada! {importados} clientes añadidos.")
             except Exception as e:
                 st.error(f"Error al procesar el fichero: {e}")
     with sub_tab_cli[2]:
-        df_clientes = pd.read_sql_query("SELECT id AS ID, nombre AS Nombre, cif_nif AS 'CIF/NIF', telefono AS Teléfono, email AS Email, direccion AS Dirección FROM clientes", conn)
+        res_c_df = conn.execute("SELECT id AS ID, nombre AS Nombre, cif_nif AS 'CIF/NIF', telefono AS Teléfono, email AS Email, direccion AS Dirección FROM clientes")
+        df_clientes = pd.DataFrame(res_c_df.rows, columns=["ID", "Nombre", "CIF/NIF", "Teléfono", "Email", "Dirección"]) if res_c_df.rows else pd.DataFrame()
         if not df_clientes.empty:
             st.dataframe(df_clientes, use_container_width=True)
 
@@ -652,13 +650,13 @@ with menu[3]:
                     st.error("El título es obligatorio.")
                 else:
                     try:
-                        cursor.execute("INSERT OR REPLACE INTO catalogo_reparaciones (titulo, descripcion) VALUES (?, ?)", (titulo_rep, desc_rep))
-                        conn.commit()
+                        conn.execute("INSERT OR REPLACE INTO catalogo_reparaciones (titulo, descripcion) VALUES (?, ?)", (titulo_rep, desc_rep))
                         st.success(f"Reparación '{titulo_rep}' guardada.")
                     except Exception as e:
                         st.error(f"Error: {e}")
         st.markdown("#### Catálogo de Reparaciones Guardadas")
-        df_reps = pd.read_sql_query("SELECT id AS ID, titulo AS 'Título Avería', descripcion AS 'Descripción Estándar' FROM catalogo_reparaciones", conn)
+        res_r_df = conn.execute("SELECT id AS ID, titulo AS 'Título Avería', descripcion AS 'Descripción Estándar' FROM catalogo_reparaciones")
+        df_reps = pd.DataFrame(res_r_df.rows, columns=["ID", "Título Avería", "Descripción Estándar"]) if res_r_df.rows else pd.DataFrame()
         if not df_reps.empty:
             st.dataframe(df_reps, use_container_width=True)
     with sub_tab_cat[1]:
@@ -672,20 +670,20 @@ with menu[3]:
                     st.error("El nombre del componente es obligatorio.")
                 else:
                     try:
-                        cursor.execute("INSERT OR REPLACE INTO catalogo_materiales (nombre, referencia) VALUES (?, ?)", (nombre_mat, ref_mat))
-                        conn.commit()
+                        conn.execute("INSERT OR REPLACE INTO catalogo_materiales (nombre, referencia) VALUES (?, ?)", (nombre_mat, ref_mat))
                         st.success(f"Componente '{nombre_mat}' guardado.")
                     except Exception as e:
                         st.error(f"Error: {e}")
         st.markdown("#### Inventario de Materiales Frecuentes")
-        df_mats = pd.read_sql_query("SELECT id AS ID, nombre AS 'Componente', referencia AS 'Ref / Part Number' FROM catalogo_materiales", conn)
+        res_m_df = conn.execute("SELECT id AS ID, nombre AS 'Componente', referencia AS 'Ref / Part Number' FROM catalogo_materiales")
+        df_mats = pd.DataFrame(res_m_df.rows, columns=["ID", "Componente", "Ref / Part Number"]) if res_m_df.rows else pd.DataFrame()
         if not df_mats.empty:
             st.dataframe(df_mats, use_container_width=True)
 
 with menu[4]:
     st.subheader("📋 Registro Global de Intervenciones Técnicas, Descarga PDF y Envío")
-    cursor.execute("SELECT id, fecha, cliente, operario, reparacion, materiales, tiempo, estado, foto_path, firma_path FROM partes ORDER BY id DESC")
-    todos_los_partes = cursor.fetchall()
+    res_todos = conn.execute("SELECT id, fecha, cliente, operario, reparacion, materiales, tiempo, estado, foto_path, firma_path FROM partes ORDER BY id DESC")
+    todos_los_partes = res_todos.rows
     if not todos_los_partes:
         st.info("No hay partes registrados en el historial.")
     else:
@@ -713,9 +711,8 @@ with menu[4]:
                                 )
                 with col_h3:
                     st.markdown("<br>", unsafe_allow_html=True)
-                    cursor.execute("SELECT email FROM clientes WHERE nombre = ?", (p_cliente,))
-                    res_mail = cursor.fetchone()
-                    email_cliente = res_mail[0] if res_mail and res_mail[0] else ""
+                    res_mail = conn.execute("SELECT email FROM clientes WHERE nombre = ?", (p_cliente,))
+                    email_cliente = res_mail.rows[0][0] if res_mail.rows and res_mail.rows[0][0] else ""
                     
                     asunto = f"Parte de Intervención Técnica #{p_id} - AMP Informática"
                     cuerpo = f"Hola,%0A%0AAdjunto remitimos el parte de intervención técnica número #{p_id} correspondiente a los trabajos realizados.%0A%0AFecha: {p_fecha}%0ATécnico: {p_operario}%0ADescripción: {p_rep}%0A%0AUn saludo,%0AAMP Informática"
@@ -738,8 +735,7 @@ with menu[4]:
                                 os.remove(p_foto)
                             if p_firma and os.path.exists(p_firma):
                                 os.remove(p_firma)
-                            cursor.execute("DELETE FROM partes WHERE id = ?", (p_id,))
-                            conn.commit()
+                            conn.execute("DELETE FROM partes WHERE id = ?", (p_id,))
                             st.success(f"¡Parte #{p_id} eliminado correctamente!")
                             st.rerun()
                         except Exception as e:
@@ -747,15 +743,15 @@ with menu[4]:
 
 with menu[5]:
     st.subheader("📊 Informes de Taller e Historial de Cliente (Partes Cerrados)")
-    cursor.execute("SELECT DISTINCT cliente FROM partes WHERE estado = 'Cerrado' ORDER BY cliente ASC")
-    clientes_db = [row[0] for row in cursor.fetchall()]
+    res_c_list = conn.execute("SELECT DISTINCT cliente FROM partes WHERE estado = 'Cerrado' ORDER BY cliente ASC")
+    clientes_db = [row[0] for row in res_c_list.rows]
     if not clientes_db:
         st.info("No hay partes con estado 'Cerrado' para generar informes o historiales de clientes todavía.")
     else:
         cliente_seleccionado = st.selectbox("Seleccionar Empresa / Cliente", options=clientes_db, key="select_cliente_informe")
         if cliente_seleccionado:
-            cursor.execute("SELECT id, fecha, cliente, operario, reparacion, materiales, tiempo, estado, foto_path, firma_path FROM partes WHERE cliente = ? AND estado = 'Cerrado' ORDER BY fecha DESC", (cliente_seleccionado,))
-            partes_cerrados_cliente = cursor.fetchall()
+            res_p_cerrados = conn.execute("SELECT id, fecha, cliente, operario, reparacion, materiales, tiempo, estado, foto_path, firma_path FROM partes WHERE cliente = ? AND estado = 'Cerrado' ORDER BY fecha DESC", (cliente_seleccionado,))
+            partes_cerrados_cliente = res_p_cerrados.rows
             if partes_cerrados_cliente:
                 st.markdown(f"### Historial de Intervenciones Cerradas para: **{cliente_seleccionado}**")
                 total_intervenciones = len(partes_cerrados_cliente)
@@ -797,14 +793,18 @@ with menu[6]:
                     st.error("⚠️ Los campos 'Título' y 'Descripción' son obligatorios.")
                 else:
                     try:
-                        cursor.execute("INSERT INTO base_conocimiento (fecha, titulo, descripcion) VALUES (?, ?, ?)", (datetime.now().strftime("%Y-%m-%d %H:%M"), kb_titulo, kb_desc))
-                        conn.commit()
+                        conn.execute("INSERT INTO base_conocimiento (fecha, titulo, descripcion) VALUES (?, ?, ?)", (datetime.now().strftime("%Y-%m-%d %H:%M"), kb_titulo, kb_desc))
                         st.success("¡Solución técnica registrada en la Base de Conocimiento con éxito!")
                     except Exception as e:
                         st.error(f"Error al guardar: {e}")
     with sub_tab_bc[1]:
         busqueda_kb = st.text_input("🔍 Buscar por palabra clave en títulos o descripciones")
-        df_kb = pd.read_sql_query("SELECT id AS ID, fecha AS Fecha, titulo AS Título, descripcion AS Descripción FROM base_conocimiento WHERE titulo LIKE ? OR descripcion LIKE ? ORDER BY id DESC" if busqueda_kb else "SELECT id AS ID, fecha AS Fecha, titulo AS Título, descripcion AS Descripción FROM base_conocimiento ORDER BY id DESC", conn, params=(f"%{busqueda_kb}%", f"%{busqueda_kb}%") if busqueda_kb else None)
+        if busqueda_kb:
+            res_kb = conn.execute("SELECT id AS ID, fecha AS Fecha, titulo AS Título, descripcion AS Descripción FROM base_conocimiento WHERE titulo LIKE ? OR descripcion LIKE ? ORDER BY id DESC", (f"%{busqueda_kb}%", f"%{busqueda_kb}%"))
+        else:
+            res_kb = conn.execute("SELECT id AS ID, fecha AS Fecha, titulo AS Título, descripcion AS Descripción FROM base_conocimiento ORDER BY id DESC")
+        
+        df_kb = pd.DataFrame(res_kb.rows, columns=["ID", "Fecha", "Título", "Descripción"]) if res_kb.rows else pd.DataFrame()
         if not df_kb.empty:
             for _, row in df_kb.iterrows():
                 with st.container(border=True):
@@ -826,9 +826,8 @@ with menu[7]:
         btn_guardar_empresa = st.form_submit_button("💾 Guardar Datos de Empresa")
         if btn_guardar_empresa:
             try:
-                cursor.execute("DELETE FROM empresa_config")
-                cursor.execute("INSERT INTO empresa_config (nombre_empresa, cif, direccion, telefono, email, web) VALUES (?, ?, ?, ?, ?, ?)", (c_nombre, c_cif, c_dir, c_telf, c_email, c_web))
-                conn.commit()
+                conn.execute("DELETE FROM empresa_config")
+                conn.execute("INSERT INTO empresa_config (nombre_empresa, cif, direccion, telefono, email, web) VALUES (?, ?, ?, ?, ?, ?)", (c_nombre, c_cif, c_dir, c_telf, c_email, c_web))
                 st.success("¡Datos de la empresa actualizados correctamente!")
             except Exception as e:
                 st.error(f"Error al actualizar la configuración: {e}")
