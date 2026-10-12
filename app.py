@@ -2,7 +2,7 @@ from datetime import datetime
 import os
 import streamlit as st
 import pandas as pd
-import libsql_client
+import libsql
 
 # Importar ReportLab para generar los PDFs de los partes
 try:
