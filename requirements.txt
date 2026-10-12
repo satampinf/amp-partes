@@ -4,3 +4,4 @@ reportlab
 streamlit-drawable-canvas
 pillow
 openpyxl
+libsql-client
