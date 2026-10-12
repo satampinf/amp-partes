@@ -122,11 +122,12 @@ def init_connection():
         url = "libsql://partes-trabajo-satampinf.aws-eu-west-1.turso.io"
         auth_token = ""
 
-    conn = libsql_client.connect(
+    # Usamos create_client en lugar de connect
+    client = libsql_client.create_client(
         url=url,
         auth_token=auth_token
     )
-    return conn
+    return client
 
 conn = init_connection()
 
