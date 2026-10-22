@@ -5,3 +5,4 @@ streamlit-drawable-canvas
 pillow
 openpyxl
 libsql
+xlrd>=2.0.1
